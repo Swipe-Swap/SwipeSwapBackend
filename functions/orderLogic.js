@@ -48,7 +48,7 @@ exports.foo = onDocumentCreated("/orders/{orderId}", async (event) => {
                 continue;
             }
             let realPrice = listing.basePrice+distanceToLocation*listing.milePrice;
-            listing.add(realPrice);
+            listing["realPrice"] = realPrice;
             validListings.append(listing);
         }
         validListings.orderBy("realPrice");
