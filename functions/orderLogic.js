@@ -12,6 +12,16 @@ initializeApp();
 exports.foo = onDocumentCreated("/orders/{orderId}", async (event) => {
     const orderDocument = event.data.data();
     console.log("this is the orderId: " + orderId);
+
+    if(orderDocument.isDelivery == false) {
+        const listingDocument = await getFirestore()
+            .collection("listings")
+            .where("diningCourt", "==", orderDocument.diningCourt)
+            .where("latestTime", ">=", orderDocument.timeListed)
+            .orderBy("basePrice");
+    }
     const listingsDocument = await getFirestore()
-                                    .collection("listings");
+        .collection("listings");
+        .where("offersDelivery", "==", "isDelivery")
+
 })
