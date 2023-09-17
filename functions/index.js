@@ -227,7 +227,13 @@ exports.sellerAccepted = onRequest(async (req, res) => {
     }
 });
 
+exports.sellerDelivered = onRequest(async (req, res) => {
+    //make it so this sets the orderStatus = "delivered"
+});
 
+exports.buyerConfirmed = onRequest(async (req, res) => {
+    //make it so this sets the orderStatus = "confirmed"
+});
 
 exports.createDummyListing = onRequest(async (req, res) => {
     function addDays(date, days) {
