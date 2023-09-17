@@ -161,6 +161,7 @@ Up until this point we have code that can:
 
 // REST API endpoint the client would hit to say whether they accept a job or not.
 exports.sellerAccepted = onRequest(async (req, res) => {
+    console.log(req.query);
     /*
     Schema of res (passed from client)
     req = {
@@ -170,12 +171,12 @@ exports.sellerAccepted = onRequest(async (req, res) => {
         accepted: true/false
     }*/
 
-    const sellerId = res.query.sellerId;
-    const orderId = res.query.orderId;
-    const listingId = res.query.listingId;
+    const sellerId = req.query.sellerId;
+    const orderId = req.query.orderId;
+    const listingId = req.query.listingId;
 
     // order accepted!
-    if(res.query.accepted){
+    if(req.query.accepted == "true"){
         // remove every queuedJobs doc with orderId
         let batch = await getFirestore().batch();
         const queuedJobsToRemove = await getFirestore().collection("queuedJobs")
@@ -190,26 +191,29 @@ exports.sellerAccepted = onRequest(async (req, res) => {
 
         // remove this listing from listings (query for sellerId, dining court to narrow down )
         const res = await getFirestore().collection("listings").doc(listingId).delete();
-        // const listingsToRemove = await getFirestore().collection("listings")
-        // .where("listingId", "==", listingId);
-        // listingsToRemove.forEach(async (doc) => {
-        // });
+
         
         // update order.status -> pending and order.sellerId -> sellerId
         const res1 = await getFirestore().collection("orders").doc(orderId).update({status: "pending", sellerId: sellerId});
     }
     // order rejected
-    else{
+    else {
+        // remove from queryJobs, go to next in line
+        const res = await getFirestore().collection("queryJobs")
+        
+        .doc(listingId).delete();
+
         // go to the next guy
         // decrement all the q numebrs for a given order id
         let batch = await getFirestore().batch();
 
-        const ordersToUpdate = await getFirestore().collection("orders")
-        .where("orderId", "==", "orderId")
+        const queuedJobsToUpdate = await getFirestore().collection("queuedJobs")
+        .where("orderId", "==", orderId)
         .get();
 
-        ordersToUpdate.forEach(async (doc) => {
-            batch.update(doc.ref, {queueNum: queueNum-1})
+        queuedJobsToUpdate.forEach(async (doc) => {
+            // console.log(doc.data())
+            batch.update(doc.ref, {queueNum: doc.data().queueNum-1})
         });
 
         batch.commit().then(() => {
@@ -225,6 +229,7 @@ exports.sellerAccepted = onRequest(async (req, res) => {
         //     }
         // });
     }
+    res.json({result: "accepted job"})
 });
 
 
