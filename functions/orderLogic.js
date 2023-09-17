@@ -53,7 +53,8 @@ exports.findSeller = onDocumentCreated("/orders/{orderId}", async (event) => {
             // listing["queueNum"] = i;
             let doc = {
                 "listingId": listing.id,
-                "queueNum" : i
+                "queueNum" : i,
+                "orderId": listing.orderId
             };
             const docRef = await getFirestore().collection("queuedJobs").doc();
             batch.set(docRef, doc);
@@ -99,7 +100,8 @@ exports.findSeller = onDocumentCreated("/orders/{orderId}", async (event) => {
             // listing["queueNum"] = i;
             let doc = {
                 "listingId": listing.id,
-                "queueNum" : i
+                "queueNum" : i,
+                "orderId": listing.orderId
             };
             const docRef = await getFirestore().collection("queuedJobs").doc();
             batch.set(docRef, doc);
