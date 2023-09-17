@@ -34,6 +34,21 @@ exports.foo = onDocumentCreated("/orders/{orderId}", async (event) => {
             .where("diningCourt", "==", orderDocument.diningCourt)
             .where("latestTime", ">=", orderDocument.timeListed)
             .orderBy("basePrice");
+        let i = 0;
+        // let newLists = []
+        for(let listing of listingDocument){
+            listing["queueNum"] = i;
+            
+            // newLists.add(listing);
+            const putNewListsinMatchedJobs = await getFirestore()
+            .collection("queuedJobs")
+            .add({
+                ...listing
+            })
+
+            i++;
+        }
+        
     }
     else{
         const listingDocument = await getFirestore()
@@ -53,6 +68,32 @@ exports.foo = onDocumentCreated("/orders/{orderId}", async (event) => {
         }
         validListings.orderBy("realPrice");
     }
-        
-
+    
 });
+
+exports.matchedJobs = onDocumentCreated("/queue/{queue}", async (event) => {
+    const matchedJobsDocument = event.data.data();
+    wait(matchedJobsDocument.waitTime()*1000);
+    console.log("this is the orderId: " + orderId);
+});
+
+// client calls us (rest api)
+exports.clientSaidYesorNo = onRequest(async (req, res) => {
+    // yes or no
+    const sellerId = res.query.sellerId;
+    const orderId = res.query.orderId;
+    if(res.query.bool=='y'){
+        //update the order database
+    }
+    else{
+        // go to the next guy
+        // decrement all the q numebrs for a given order id
+        const ordersToDecrement = await getFirestore()
+        .collection("orders")
+        .where("orderId", "==", orderId)
+        .forEach(async (doc) => {
+            const res = await doc.update({queueNum: queueNum-1});
+            return; 
+        });
+    }
+})
