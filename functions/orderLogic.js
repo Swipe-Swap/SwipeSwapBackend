@@ -49,17 +49,18 @@ exports.findSeller = onDocumentCreated("/orders/{orderId}", async (event) => {
         // add potential matches to queuedJobs table
         let i = 0;
         let batch = await getFirestore().batch();
-        for(let listing of listingDocument){
-            listing["queueNum"] = i;
-            
-            const docRef = await getFirestore().collection("queuedJobs").doc(listing.id);
-            batch.update(docRef, listing);
-
-            i++;
-        }
+        listingDocument.forEach(async (listing) => {
+            // listing["queueNum"] = i;
+            let doc = {
+                "listingId": listing.id,
+                "queueNum" : i
+            };
+            const docRef = await getFirestore().collection("queuedJobs").doc();
+            batch.set(docRef, doc);
+        });
         batch.commit().then(() => {
             console.log("Added potential matches to queuedJobs table for ", orderId);
-        })
+        });
     }
     // delivery selected
     else{
@@ -94,72 +95,100 @@ exports.findSeller = onDocumentCreated("/orders/{orderId}", async (event) => {
         // add potential matches to queuedJobs table
         let i = 0;
         let batch = await getFirestore().batch();
-        for(let listing of validListings){
-            listing["queueNum"] = i;
-            
-            const docRef = await getFirestore().collection("queuedJobs").doc(listing.id);
-            batch.update(docRef, listing);
-
-            i++;
-        }
+        validListings.forEach(async (listing) => {
+            // listing["queueNum"] = i;
+            let doc = {
+                "listingId": listing.id,
+                "queueNum" : i
+            };
+            const docRef = await getFirestore().collection("queuedJobs").doc();
+            batch.set(docRef, doc);
+        });
         batch.commit().then(() => {
             console.log("Added potential matches to queuedJobs table for ", orderId);
-        })
+        });
     }
     
 });
 
-// exports.matchedJobs = onDocumentCreated("/queue/{queue}", async (event) => {
-//     const matchedJobsDocument = event.data.data();
-//     wait(matchedJobsDocument.waitTime()*1000);
-//     console.log("this is the orderId: " + orderId);
-// });
 
-
-
+/*
+Up until this point we have code that can:
+ - Wait for an order to appear in the orders table
+ - Logic to match the order to sellers
+ - Put the sellers in the queuedJobs table as a listing with an extra new field (queueNumber)
+ 
+ Now every seller client (frontend) would listen for changes to the queuedJobs table:
+ every a doc is added queuedJobs is added:
+ - check if it is this client's listing (check if diningCourt and sellerID match any of client's listings)
+ - if it is my listing and queueNum == 0, then display accept/reject in UI
+ - once they click accept or reject hit the following endpoint:
+*/
 
 // REST API endpoint the client would hit to say whether they accept a job or not.
-// 
 exports.clientSaidYesorNo = onRequest(async (req, res) => {
-    // yes or no
+    /*
+    Schema of res (passed from client)
+    req = {
+        sellerId: sellerId,
+        orderId: orderId,
+        listingId: listingId,
+        accepted: true/false
+    }*/
+
     const sellerId = res.query.sellerId;
     const orderId = res.query.orderId;
     const listingId = res.query.listingId;
-    if(res.query.bool=='y'){
-        // remove every queuedJobs with orderId
-        const queuedJobsToRemove = await getFirestore()
-        .collection("queuedJobs")
+
+    // order accepted!
+    if(res.query.accepted){
+        // remove every queuedJobs doc with orderId
+        let batch = await getFirestore().batch();
+        const queuedJobsToRemove = await getFirestore().collection("queuedJobs")
         .where("orderId","==", orderId)
         .get();
         queuedJobsToRemove.forEach(async (doc) => {
-            doc.ref.delete();
+            batch.delete(doc.ref, doc);
         })
-        // remove this listing from listings (query for sellerId, dining court to narrow down 
-        // and remove the first one
+        batch.commit().then(() => {
+            console.log("Removed every doc from queuedJobs with orderId ", orderId);
+        });
+
+        // remove this listing from listings (query for sellerId, dining court to narrow down )
+        const res = await getFirestore().collection("listings").doc(listingId).delete();
+        // const listingsToRemove = await getFirestore().collection("listings")
+        // .where("listingId", "==", listingId);
+        // listingsToRemove.forEach(async (doc) => {
+        // });
         
         // update order.status -> pending and order.sellerId -> sellerId
-
-        // 
-
-
+        const res1 = await getFirestore().collection("orders").doc(orderId).update({status: "pending", sellerId: sellerId});
     }
+    // order rejected
     else{
         // go to the next guy
         // decrement all the q numebrs for a given order id
-        const orders = await getFirestore().collection("orders")
+        let batch = await getFirestore().batch();
 
-        orders.where("orderId", "==", orderId).get().then(snapshots => {
-            if(snapshots.size > 0) {
-                snapshots.forEach(orderItem => {
-                    orders.doc(orderItem.id).update({queueNum: queueNum + 1})
-                })
-            }
+        const ordersToUpdate = await getFirestore().collection("orders")
+        .where("orderId", "==", "orderId")
+        .get();
+
+        ordersToUpdate.forEach(async (doc) => {
+            batch.update(doc.ref, {queueNum: queueNum-1})
         });
 
-        // .where("orderId", "==", orderId)
-        // .get();
-        // ordersToDecrement.forEach((doc) => {
-            
+        batch.commit().then(() => {
+            console.log("Decremented all q numbers for order id ", orderId);
+        });
+
+
+        // orders.where("orderId", "==", orderId).get().then(snapshots => {
+        //     if(snapshots.size > 0) {
+        //         snapshots.forEach(orderItem => {
+        //             orders.doc(orderItem.id).update({queueNum: queueNum + 1})
+        //         })
+        //     }
         // });
     }
 })
