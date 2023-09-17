@@ -9,7 +9,8 @@ const {getFirestore} = require("firebase-admin/firestore");
 
 initializeApp();
 
-
+// geo1, geo2 fields = latitude, longitude
+// returns miles between two points
 function haversineDistance(geo1, geo2) {
     const R = 3958.8;
     const dLat = toRad(geo2.latitude - geo1.latitude);
@@ -24,76 +25,141 @@ function haversineDistance(geo1, geo2) {
     return R * c;
 }
 
-exports.foo = onDocumentCreated("/orders/{orderId}", async (event) => {
+// map dining court to lat long
+const locationTable = {
+    "wiley": {"latitude": 40.42865980957039,"longitude": -86.92071621514745},
+    "winsdor": {"latitude": 40.42758749736161, "longitude": -86.92044085397546},
+    "hillenbrand": {"latitude": 40.42671182373336, "longitude": -86.92711379129472},
+    "ford": {"latitude": 40.43219870311529, "longitude": -86.91946084396353},
+    "earhart": {"latitude": 40.42572918099655, "longitude": -86.92510820350142}
+}
+
+// find seller on new order added to orders table
+exports.findSeller = onDocumentCreated("/orders/{orderId}", async (event) => {
     const orderDocument = event.data.data();
     console.log("this is the orderId: " + orderId);
-
+    // not delivery
     if(orderDocument.isDelivery == false) {
         const listingDocument = await getFirestore()
             .collection("listings")
             .where("diningCourt", "==", orderDocument.diningCourt)
             .where("latestTime", ">=", orderDocument.timeListed)
-            .orderBy("basePrice");
+            .orderBy("basePrice")
+            .get();
+        // add potential matches to queuedJobs table
         let i = 0;
-        // let newLists = []
+        let batch = await getFirestore().batch();
         for(let listing of listingDocument){
             listing["queueNum"] = i;
             
-            // newLists.add(listing);
-            const putNewListsinMatchedJobs = await getFirestore()
-            .collection("queuedJobs")
-            .add({
-                ...listing
-            })
+            const docRef = await getFirestore().collection("queuedJobs").doc(listing.id);
+            batch.update(docRef, listing);
 
             i++;
         }
-        
+        batch.commit().then(() => {
+            console.log("Added potential matches to queuedJobs table for ", orderId);
+        })
     }
+    // delivery selected
     else{
+        // get potential orders
         const listingDocument = await getFirestore()
             .collection("listings")
             .where("offersDelivery", "==", "isDelivery")
             .where("diningCourt", "==", orderDocument.diningCourt)
             .where("latestTime", ">=", orderDocument.timeListed)
+            .get();
+
+        // checking if order is within range
         let validListings = [];
         for(let listing of listingDocument){
             let distanceToLocation = haversineDistance(locationTable[listing.diningCourt], orderDocument.location);
-            if(distanceToLocation>range){
-                continue;
+            // if we are within range, append listing to validListings
+            if(distanceToLocation <= listing.range){
+                let realPrice = listing.basePrice + distanceToLocation * listing.milePrice;
+                listing["realPrice"] = realPrice;
+                validListings.append(listing);
             }
-            let realPrice = listing.basePrice+distanceToLocation*listing.milePrice;
-            listing["realPrice"] = realPrice;
-            validListings.append(listing);
         }
-        validListings.orderBy("realPrice");
+        // sort by price ascending
+        function sortByKey(array, key) {
+            return array.sort(function(a, b) {
+                var x = a[key]; var y = b[key];
+                return ((x < y) ? -1 : ((x > y) ? 1 : 0));
+            });
+        }
+        sortByKey(validListings, "realPrice")
+
+        // add potential matches to queuedJobs table
+        let i = 0;
+        let batch = await getFirestore().batch();
+        for(let listing of validListings){
+            listing["queueNum"] = i;
+            
+            const docRef = await getFirestore().collection("queuedJobs").doc(listing.id);
+            batch.update(docRef, listing);
+
+            i++;
+        }
+        batch.commit().then(() => {
+            console.log("Added potential matches to queuedJobs table for ", orderId);
+        })
     }
     
 });
 
-exports.matchedJobs = onDocumentCreated("/queue/{queue}", async (event) => {
-    const matchedJobsDocument = event.data.data();
-    wait(matchedJobsDocument.waitTime()*1000);
-    console.log("this is the orderId: " + orderId);
-});
+// exports.matchedJobs = onDocumentCreated("/queue/{queue}", async (event) => {
+//     const matchedJobsDocument = event.data.data();
+//     wait(matchedJobsDocument.waitTime()*1000);
+//     console.log("this is the orderId: " + orderId);
+// });
 
-// client calls us (rest api)
+
+
+
+// REST API endpoint the client would hit to say whether they accept a job or not.
+// 
 exports.clientSaidYesorNo = onRequest(async (req, res) => {
     // yes or no
     const sellerId = res.query.sellerId;
     const orderId = res.query.orderId;
+    const listingId = res.query.listingId;
     if(res.query.bool=='y'){
-        //update the order database
+        // remove every queuedJobs with orderId
+        const queuedJobsToRemove = await getFirestore()
+        .collection("queuedJobs")
+        .where("orderId","==", orderId)
+        .get();
+        queuedJobsToRemove.forEach(async (doc) => {
+            doc.ref.delete();
+        })
+        // remove this listing from listings (query for sellerId, dining court to narrow down 
+        // and remove the first one
+        
+        // update order.status -> pending and order.sellerId -> sellerId
+
+        // 
+
+
     }
     else{
         // go to the next guy
         // decrement all the q numebrs for a given order id
-        const ordersToDecrement = await getFirestore()
-        .collection("orders")
-        .where("orderId", "==", orderId)
-        .forEach(async (doc) => {
-            const res = await doc.update({queueNum: queueNum-1});
-            return; 
+        const orders = await getFirestore().collection("orders")
+
+        orders.where("orderId", "==", orderId).get().then(snapshots => {
+            if(snapshots.size > 0) {
+                snapshots.forEach(orderItem => {
+                    orders.doc(orderItem.id).update({queueNum: queueNum + 1})
+                })
+            }
         });
+
+        // .where("orderId", "==", orderId)
+        // .get();
+        // ordersToDecrement.forEach((doc) => {
+            
+        // });
     }
 })
