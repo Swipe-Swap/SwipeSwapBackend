@@ -232,7 +232,21 @@ exports.sellerAccepted = onRequest(async (req, res) => {
     res.json({result: "accepted job"})
 });
 
+exports.sellerDelivered = onRequest(async (req, res) => {
+    //make it so this sets the orderStatus = "delivered"
+    const orderId = res.query.orderId;
+    const orderToUpdate = await getFirestore().collection("orders")
+    .where("orderId","==",orderId);
+    const res = await getFirestore().collection("orders").doc(orderToUpdate.ref.id).update({status: "delivered"});
+});
 
+exports.buyerConfirmed = onRequest(async (req, res) => {
+    //make it so this sets the orderStatus = "confirmed"
+    const orderId = res.query.orderId;
+    const orderToUpdate = await getFirestore().collection("orders")
+    .where("orderId","==",orderId);
+    const res = await getFirestore().collection("orders").doc(orderToUpdate.ref.id).update({status: "confirmed"});
+});
 
 exports.createDummyListing = onRequest(async (req, res) => {
     function addDays(date, days) {
