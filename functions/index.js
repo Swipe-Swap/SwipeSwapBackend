@@ -65,6 +65,7 @@ exports.findSeller = onDocumentCreated("/orders/{orderId}", async (event) => {
                 "orderId": orderId,
                 price: listing.data().basePrice
             };
+            i++;
             const docRef = getFirestore().collection("queuedJobs").doc();
             batch.set(docRef, doc);
         });
