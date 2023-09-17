@@ -126,7 +126,7 @@ Up until this point we have code that can:
 */
 
 // REST API endpoint the client would hit to say whether they accept a job or not.
-exports.clientSaidYesorNo = onRequest(async (req, res) => {
+exports.sellerAccepted = onRequest(async (req, res) => {
     /*
     Schema of res (passed from client)
     req = {
@@ -191,4 +191,4 @@ exports.clientSaidYesorNo = onRequest(async (req, res) => {
         //     }
         // });
     }
-})
+});
