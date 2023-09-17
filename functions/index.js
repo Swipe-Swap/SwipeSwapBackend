@@ -8,7 +8,9 @@ const {initializeApp} = require("firebase-admin/app");
 const {getFirestore, Timestamp} = require("firebase-admin/firestore");
 
 initializeApp();
-
+function toRad(degrees) {
+    return degrees * Math.PI / 180;
+}
 // geo1, geo2 fields = latitude, longitude
 // returns miles between two points
 function haversineDistance(geo1, geo2) {
@@ -55,12 +57,13 @@ exports.findSeller = onDocumentCreated("/orders/{orderId}", async (event) => {
         let batch = await getFirestore().batch();
         listingDocument.forEach((listing) => {
             console.log("listing")
-            console.log(listing)
+            console.log(listing.id)
             // listing["queueNum"] = i;
             let doc = {
                 "listingId": listing.id,
                 "queueNum" : i,
-                "orderId": orderId
+                "orderId": orderId,
+                price: listing.data().basePrice
             };
             const docRef = getFirestore().collection("queuedJobs").doc();
             batch.set(docRef, doc);
@@ -75,22 +78,39 @@ exports.findSeller = onDocumentCreated("/orders/{orderId}", async (event) => {
         // get potential orders
         const listingDocument = await getFirestore()
             .collection("listings")
-            .where("offersDelivery", "==", "isDelivery")
+            .where("canDeliver", "==", orderDocument.isDelivery)
             .where("diningCourt", "==", orderDocument.diningCourt)
             .where("expirationTime", ">=", orderDocument.timeListed)
             .get();
 
         // checking if order is within range
         let validListings = [];
-        for(let listing of listingDocument){
-            let distanceToLocation = haversineDistance(locationTable[listing.diningCourt], orderDocument.location);
+        listingDocument.forEach((listingObject) => {
+            listing = listingObject.data()
+            let distanceToLocation = haversineDistance(locationTable[listing.diningCourt], orderDocument.deliveryLocation);
+            console.log(distanceToLocation);
             // if we are within range, append listing to validListings
-            if(distanceToLocation <= listing.range){
+            if(distanceToLocation <= listing.rangeMiles){
                 let realPrice = listing.basePrice + distanceToLocation * listing.milePrice;
                 listing["realPrice"] = realPrice;
-                validListings.append(listing);
+                listing["id"] = listingObject.id
+                console.log("set real price: ")
+                console.log(listing)
+                // listing["id"]
+                validListings.push(listing);
             }
-        }
+        })
+        console.log(validListings)
+        // for(let listing of listingDocument){
+        //     let distanceToLocation = haversineDistance(locationTable[listing.diningCourt], orderDocument.location);
+        //     // if we are within range, append listing to validListings
+        //     if(distanceToLocation <= listing.range){
+        //         let realPrice = listing.basePrice + distanceToLocation * listing.milePrice;
+        //         listing["realPrice"] = realPrice;
+        //         validListings.append(listing);
+        //     }
+        // }
+
         // sort by price ascending
         function sortByKey(array, key) {
             return array.sort(function(a, b) {
@@ -98,19 +118,24 @@ exports.findSeller = onDocumentCreated("/orders/{orderId}", async (event) => {
                 return ((x < y) ? -1 : ((x > y) ? 1 : 0));
             });
         }
-        sortByKey(validListings, "realPrice")
-
+        validListings = sortByKey(validListings, "realPrice");
+        console.log(validListings);
+        // validListings = validListings.reverse();
         // add potential matches to queuedJobs table
         let i = 0;
         let batch = await getFirestore().batch();
-        validListings.forEach(async (listing) => {
+        validListings.forEach((listing) => {
+            // console.log(listingObject)
+            // let listing = listingObject.data()
             // listing["queueNum"] = i;
             let doc = {
                 "listingId": listing.id,
                 "queueNum" : i,
-                "orderId": listing.orderId
+                "orderId": orderId,
+                "price": listing.realPrice
             };
-            const docRef = await getFirestore().collection("queuedJobs").doc();
+            i++;
+            const docRef = getFirestore().collection("queuedJobs").doc();
             batch.set(docRef, doc);
         });
         batch.commit().then(() => {
@@ -213,14 +238,14 @@ exports.createDummyListing = onRequest(async (req, res) => {
     // create dummy listing
     const collection = await getFirestore().collection("listings").doc()
     .set({
-        basePrice: 10,
-        canDeliver: false,
+        basePrice: 7,
+        canDeliver: true,
         diningCourt: "winsdor",
         expirationTime: Timestamp.fromDate(addDays(new Date(), 2)),
         listedTime: Timestamp.fromDate(new Date()),
         milePrice: 5,
         rangeMiles: 1,
-        sellerId: ""
+        sellerId: "H1XPbD4cg1cxkX9Sf3ka4x7lSN82"
     });
     res.json({result: `Dummy listing created`});
 });
@@ -233,10 +258,10 @@ exports.createDummyOrder = onRequest(async (req, res) => {
     }
     const dummyOrder = {
         deliveryLocation: {
-            latitude: 0,
-            longitude: 0
+            latitude: locationTable.wiley.latitude,
+            longitude: locationTable.wiley.longitude
         },
-        isDelivery: false,
+        isDelivery: true,
         buyerId: "iV3XLgW5JuRNAuWYFLmKqjkqHg43",
         sellerId: "",
         deliveryInstructions: "leave it at the door",
@@ -248,5 +273,5 @@ exports.createDummyOrder = onRequest(async (req, res) => {
     // create dummy order
     const collection = await getFirestore().collection("orders").doc()
     .set(dummyOrder);
-    res.json({result: `Dummy order created`});
+    res.json(dummyOrder);
 });
