@@ -158,12 +158,12 @@ exports.sellerResponse = onRequest(async (req, res) => {
     /*
     Schema of res (passed from client)
     req = {
-        sellerId: sellerId,
+        sellerPrefId: sellerPrefId,
         orderId: orderId,
         status: accepted, rejected, timedOut
     }*/
 
-    const sellerId = req.query.sellerId;
+    const sellerPrefId = req.query.sellerPrefId;
     const orderId = req.query.orderId;
     const status = req.query.status;
     
@@ -179,20 +179,19 @@ exports.sellerResponse = onRequest(async (req, res) => {
             console.log("Removed every doc from queuedJobs with orderId ", orderId);
         });
 
-        // remove this seller from sellerPreferences (query for sellerId, dining court to narrow down )
-        const res = await getFirestore().collection("sellerPreferences").doc(sellerId).delete();
-
+        // set sellerPreferences.active to false
+        const res = await getFirestore().collection("sellerPreferences").doc(sellerPrefId).update({active: false})
         
-        // update order.status -> pending and order.sellerId -> sellerId
-        const res1 = await getFirestore().collection("orders").doc(orderId).update({status: "pending", sellerId: sellerId});
+        // update order.status -> pending and order.sellerPrefId -> sellerPrefId
+        const res1 = await getFirestore().collection("orders").doc(orderId).update({status: "pending", sellerPrefId: sellerPrefId});
     }
     // ORDER REJECTED
     else if(status == "rejected") {
-        // remove from queryJobs, go to next in line
-        const queryJobToDelete = await getFirestore().collection("queuedJobs").where("sellerId", "==", sellerId).get()
+        // remove from the job queued for the seller from queryJobs, go to next in line
+        const queryJobToDelete = await getFirestore().collection("queuedJobs").where("sellerPrefId", "==", sellerPrefId).get()
         queryJobToDelete.forEach((doc) => {
             doc.ref.delete();
-        })
+        });
         
 
         // go to the next guy
@@ -211,12 +210,11 @@ exports.sellerResponse = onRequest(async (req, res) => {
     }
     // ORDER TIMED OUT
     else if (status == "timedOut") {
-        // Move position one to position 0, and everyone else down a position.
-
+        // Move everyone down a position except those already at 0
         let batch = getFirestore().batch();
         const queuedJobsToUpdate = await getFirestore().collection("queuedJobs")
         .where("orderId", "==", orderId)
-        .where("sellerId","!=", sellerId)
+        .where("queueNum","!=", 0)
         .get();
         queuedJobsToUpdate.forEach(async (doc) => {
             batch.update(doc.ref, {queueNum: doc.data().queueNum-1});
@@ -261,7 +259,7 @@ exports.createDummySeller = onRequest(async (req, res) => {
         result.setDate(result.getDate() + days);
         return result;
     }
-    // create dummy listing
+    // create dummy sellerPreferences doc
     const collection = await getFirestore().collection("sellerPreferences").doc()
     .set({
         basePrice: 7,
@@ -271,7 +269,8 @@ exports.createDummySeller = onRequest(async (req, res) => {
         listedTime: Timestamp.fromDate(new Date()),
         milePrice: 5,
         rangeMiles: 1,
-        uid: "H1XPbD4cg1cxkX9Sf3ka4x7lSN82"
+        uid: "H1XPbD4cg1cxkX9Sf3ka4x7lSN82",
+        active: false
     });
     res.json({result: `Dummy listing created`});
 });
