@@ -47,6 +47,7 @@ exports.findSeller = onDocumentCreated("/orders/{orderId}", async (event) => {
     if(orderDocument.isDelivery == false) {
         const matchedPreferences = await getFirestore()
             .collection("sellerPreferences")
+            .where("active", "==", true)
             .where("diningCourts", "arrayCountains", orderDocument.diningCourt)
             .where("expirationTime", ">=", orderDocument.timeListed)
             .orderBy("basePrice")
@@ -77,9 +78,10 @@ exports.findSeller = onDocumentCreated("/orders/{orderId}", async (event) => {
         // get potential orders
         const matchedPreferences = await getFirestore()
             .collection("sellerPreferences")
+            .where("active", "==", true)
             .where("canDeliver", "==", orderDocument.isDelivery)
-            .where("diningCourts", "arrayCountains", orderDocument.diningCourt)
-            .where("expirationTime", ">=", orderDocument.timeListed)
+            .where("diningCourts", "array-contains", orderDocument.diningCourt)
+            // .where("expirationTime", ">=", orderDocument.timeListed)
             .orderBy("basePrice")
             .get();
 
@@ -87,7 +89,7 @@ exports.findSeller = onDocumentCreated("/orders/{orderId}", async (event) => {
         let validSellers = [];
         matchedPreferences.forEach((seller) => {
             sellerData = seller.data()
-            let distanceToLocation = haversineDistance(locationTable[listing.diningCourt], orderDocument.deliveryLocation);
+            let distanceToLocation = haversineDistance(locationTable[orderDocument.diningCourt], orderDocument.deliveryLocation);
             console.log(distanceToLocation);
             // if we are within range, append listing to validSellers
             if(distanceToLocation <= sellerData.rangeMiles){
@@ -262,7 +264,7 @@ exports.createDummySeller = onRequest(async (req, res) => {
     // create dummy sellerPreferences doc
     const collection = await getFirestore().collection("sellerPreferences").doc()
     .set({
-        basePrice: 7,
+        basePrice: 5,
         canDeliver: true,
         diningCourts: ["winsdor"],
         expirationTime: Timestamp.fromDate(addDays(new Date(), 2)),
@@ -270,7 +272,7 @@ exports.createDummySeller = onRequest(async (req, res) => {
         milePrice: 5,
         rangeMiles: 1,
         uid: "H1XPbD4cg1cxkX9Sf3ka4x7lSN82",
-        active: false
+        active: true
     });
     res.json({result: `Dummy listing created`});
 });
