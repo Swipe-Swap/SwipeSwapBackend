@@ -56,10 +56,10 @@ exports.findSeller = onDocumentCreated("/orders/{orderId}", async (event) => {
         let i = 0;
         let batch = getFirestore().batch();
         matchedPreferences.forEach(async (seller) => {
-            console.log("listing");
+            // console.log("listing");
             console.log(seller.id);
             let doc = {
-                sellerId: seller.data().uid,
+                sellerPrefId: seller.id,
                 queueNum: i,
                 orderId: orderId,
                 price: seller.data().basePrice
@@ -93,10 +93,8 @@ exports.findSeller = onDocumentCreated("/orders/{orderId}", async (event) => {
             if(distanceToLocation <= sellerData.rangeMiles){
                 let realPrice = sellerData.basePrice + distanceToLocation * sellerData.milePrice;
                 sellerData["realPrice"] = realPrice;
-                sellerData["id"] = seller.id
-                console.log("set real price: ")
-                console.log(sellerData)
-                // listing["id"]
+                sellerData["sellerPrefId"] = seller.id;
+                console.log(`set real price: ${realPrice}`)
                 validSellers.push(sellerData);
             }
         });
@@ -120,7 +118,7 @@ exports.findSeller = onDocumentCreated("/orders/{orderId}", async (event) => {
             // let listing = listingObject.data()
             // listing["queueNum"] = i;
             let doc = {
-                sellerId: seller.id,
+                sellerPrefId: seller.sellerPrefId,
                 queueNum: i,
                 orderId: orderId,
                 price: seller.realPrice
@@ -257,7 +255,7 @@ exports.sellerResponse = onRequest(async (req, res) => {
 //    // const res = await getFiresllection("orders").doc(orderToUpdate.ref.id).update({status: "confirmed"});
 // });
 
-exports.createDummyListing = onRequest(async (req, res) => {
+exports.createDummySeller = onRequest(async (req, res) => {
     function addDays(date, days) {
         var result = new Date(date);
         result.setDate(result.getDate() + days);
@@ -268,12 +266,12 @@ exports.createDummyListing = onRequest(async (req, res) => {
     .set({
         basePrice: 7,
         canDeliver: true,
-        diningCourt: "winsdor",
+        diningCourts: ["winsdor"],
         expirationTime: Timestamp.fromDate(addDays(new Date(), 2)),
         listedTime: Timestamp.fromDate(new Date()),
         milePrice: 5,
         rangeMiles: 1,
-        sellerId: "H1XPbD4cg1cxkX9Sf3ka4x7lSN82"
+        uid: "H1XPbD4cg1cxkX9Sf3ka4x7lSN82"
     });
     res.json({result: `Dummy listing created`});
 });
@@ -290,8 +288,8 @@ exports.createDummyOrder = onRequest(async (req, res) => {
             longitude: locationTable.wiley.longitude
         },
         isDelivery: true,
-        buyerId: "iV3XLgW5JuRNAuWYFLmKqjkqHg43",
-        sellerId: "",
+        buyerUId: "iV3XLgW5JuRNAuWYFLmKqjkqHg43",
+        sellerPrefId: "",
         deliveryInstructions: "leave it at the door",
         diningCourt: "winsdor",
         orderStatus: "listed",
