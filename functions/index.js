@@ -161,6 +161,7 @@ Up until this point we have code that can:
 */
 
 // REST API endpoint the client would hit to say whether they accept a job or not.
+// https:/sdlkfasdf/selle
 exports.sellerAccepted = onRequest(async (req, res) => {
     console.log(req.query);
     /*
