@@ -45,29 +45,27 @@ exports.findSeller = onDocumentCreated("/orders/{orderId}", async (event) => {
     console.log("this is the orderId: " + orderId);
     // not delivery
     if(orderDocument.isDelivery == false) {
-        const listingDocument = await getFirestore()
-            .collection("listings")
-            .where("diningCourt", "==", orderDocument.diningCourt)
-            .orderBy("expirationTime")
+        const matchedPreferences = await getFirestore()
+            .collection("sellerPreferences")
+            .where("diningCourts", "arrayCountains", orderDocument.diningCourt)
             .where("expirationTime", ">=", orderDocument.timeListed)
             .orderBy("basePrice")
             .get();
         // add potential matches to queuedJobs table
+        // add one at a time?
         let i = 0;
-        let batch = await getFirestore().batch();
-        listingDocument.forEach((listing) => {
-            console.log("listing")
-            console.log(listing.id)
-            // listing["queueNum"] = i;
+        let batch = getFirestore().batch();
+        matchedPreferences.forEach(async (seller) => {
+            console.log("listing");
+            console.log(seller.id);
             let doc = {
-                "listingId": listing.id,
-                "queueNum" : i,
-                "orderId": orderId,
-                price: listing.data().basePrice
+                sellerId: seller.data().uid,
+                queueNum: i,
+                orderId: orderId,
+                price: seller.data().basePrice
             };
             i++;
-            const docRef = getFirestore().collection("queuedJobs").doc();
-            batch.set(docRef, doc);
+            const docRef = await getFirestore().collection("queuedJobs").doc().set(doc);
         });
         batch.commit().then(() => {
             // console.log("Added potential matches to queuedJobs table for ", orderDocument.id);
@@ -75,42 +73,34 @@ exports.findSeller = onDocumentCreated("/orders/{orderId}", async (event) => {
         });
     }
     // delivery selected
-    else{
+    else {
         // get potential orders
-        const listingDocument = await getFirestore()
-            .collection("listings")
+        const matchedPreferences = await getFirestore()
+            .collection("sellerPreferences")
             .where("canDeliver", "==", orderDocument.isDelivery)
-            .where("diningCourt", "==", orderDocument.diningCourt)
+            .where("diningCourts", "arrayCountains", orderDocument.diningCourt)
             .where("expirationTime", ">=", orderDocument.timeListed)
+            .orderBy("basePrice")
             .get();
 
         // checking if order is within range
-        let validListings = [];
-        listingDocument.forEach((listingObject) => {
-            listing = listingObject.data()
+        let validSellers = [];
+        matchedPreferences.forEach((seller) => {
+            sellerData = seller.data()
             let distanceToLocation = haversineDistance(locationTable[listing.diningCourt], orderDocument.deliveryLocation);
             console.log(distanceToLocation);
-            // if we are within range, append listing to validListings
-            if(distanceToLocation <= listing.rangeMiles){
-                let realPrice = listing.basePrice + distanceToLocation * listing.milePrice;
-                listing["realPrice"] = realPrice;
-                listing["id"] = listingObject.id
+            // if we are within range, append listing to validSellers
+            if(distanceToLocation <= sellerData.rangeMiles){
+                let realPrice = sellerData.basePrice + distanceToLocation * sellerData.milePrice;
+                sellerData["realPrice"] = realPrice;
+                sellerData["id"] = seller.id
                 console.log("set real price: ")
-                console.log(listing)
+                console.log(sellerData)
                 // listing["id"]
-                validListings.push(listing);
+                validSellers.push(sellerData);
             }
-        })
-        console.log(validListings)
-        // for(let listing of listingDocument){
-        //     let distanceToLocation = haversineDistance(locationTable[listing.diningCourt], orderDocument.location);
-        //     // if we are within range, append listing to validListings
-        //     if(distanceToLocation <= listing.range){
-        //         let realPrice = listing.basePrice + distanceToLocation * listing.milePrice;
-        //         listing["realPrice"] = realPrice;
-        //         validListings.append(listing);
-        //     }
-        // }
+        });
+        console.log(validSellers);
 
         // sort by price ascending
         function sortByKey(array, key) {
@@ -119,21 +109,21 @@ exports.findSeller = onDocumentCreated("/orders/{orderId}", async (event) => {
                 return ((x < y) ? -1 : ((x > y) ? 1 : 0));
             });
         }
-        validListings = sortByKey(validListings, "realPrice");
-        console.log(validListings);
-        // validListings = validListings.reverse();
+        validSellers = sortByKey(validSellers, "realPrice");
+        console.log(validSellers);
+
         // add potential matches to queuedJobs table
         let i = 0;
-        let batch = await getFirestore().batch();
-        validListings.forEach((listing) => {
+        let batch = getFirestore().batch();
+        validSellers.forEach((seller) => {
             // console.log(listingObject)
             // let listing = listingObject.data()
             // listing["queueNum"] = i;
             let doc = {
-                "listingId": listing.id,
-                "queueNum" : i,
-                "orderId": orderId,
-                "price": listing.realPrice
+                sellerId: seller.id,
+                queueNum: i,
+                orderId: orderId,
+                price: seller.realPrice
             };
             i++;
             const docRef = getFirestore().collection("queuedJobs").doc();
@@ -158,32 +148,32 @@ Up until this point we have code that can:
  - check if it is this client's listing (check if diningCourt and sellerID match any of client's listings)
  - if it is my listing and queueNum == 0, then display accept/reject in UI
  - once they click accept or reject hit the following endpoint:
+
+On the frontent, once the seller phone sees the request they wait 1 minute and then send an https request
+
 */
 
 // REST API endpoint the client would hit to say whether they accept a job or not.
 // https:/sdlkfasdf/selle
-exports.sellerAccepted = onRequest(async (req, res) => {
+exports.sellerResponse = onRequest(async (req, res) => {
     console.log(req.query);
     /*
     Schema of res (passed from client)
     req = {
         sellerId: sellerId,
         orderId: orderId,
-        listingId: listingId,
-        accepted: true/false
+        status: accepted, rejected, timedOut
     }*/
 
     const sellerId = req.query.sellerId;
     const orderId = req.query.orderId;
-    const listingId = req.query.listingId;
-
-    // order accepted!
-    if(req.query.accepted == "true"){
+    const status = req.query.status;
+    
+    // ORDER ACCEPTED
+    if(status == "accepted") {
         // remove every queuedJobs doc with orderId
-        let batch = await getFirestore().batch();
-        const queuedJobsToRemove = await getFirestore().collection("queuedJobs")
-        .where("orderId","==", orderId)
-        .get();
+        let batch = getFirestore().batch();
+        const queuedJobsToRemove = await getFirestore().collection("queuedJobs").where("orderId","==", orderId).get();
         queuedJobsToRemove.forEach(async (doc) => {
             batch.delete(doc.ref, doc);
         })
@@ -191,19 +181,17 @@ exports.sellerAccepted = onRequest(async (req, res) => {
             console.log("Removed every doc from queuedJobs with orderId ", orderId);
         });
 
-        // remove this listing from listings (query for sellerId, dining court to narrow down )
-        const res = await getFirestore().collection("listings").doc(listingId).delete();
+        // remove this seller from sellerPreferences (query for sellerId, dining court to narrow down )
+        const res = await getFirestore().collection("sellerPreferences").doc(sellerId).delete();
 
         
         // update order.status -> pending and order.sellerId -> sellerId
         const res1 = await getFirestore().collection("orders").doc(orderId).update({status: "pending", sellerId: sellerId});
     }
-    // order rejected
-    else {
+    // ORDER REJECTED
+    else if(status == "rejected") {
         // remove from queryJobs, go to next in line
-        const queryJobToDelete = await getFirestore().collection("queuedJobs")
-        .where("listingId", "==", listingId)
-        .get()
+        const queryJobToDelete = await getFirestore().collection("queuedJobs").where("sellerId", "==", sellerId).get()
         queryJobToDelete.forEach((doc) => {
             doc.ref.delete();
         })
@@ -211,58 +199,63 @@ exports.sellerAccepted = onRequest(async (req, res) => {
 
         // go to the next guy
         // decrement all the q numebrs for a given order id
-        let batch = await getFirestore().batch();
+        let batch = getFirestore().batch();
 
-        const queuedJobsToUpdate = await getFirestore().collection("queuedJobs")
-        .where("orderId", "==", orderId)
-        .get();
+        const queuedJobsToUpdate = await getFirestore().collection("queuedJobs").where("orderId", "==", orderId).get();
 
         queuedJobsToUpdate.forEach(async (doc) => {
-            // console.log(doc.data())
-            batch.update(doc.ref, {queueNum: doc.data().queueNum-1})
+            batch.update(doc.ref, {queueNum: doc.data().queueNum-1});
         });
 
         batch.commit().then(() => {
             console.log("Decremented all q numbers for order id ", orderId);
         });
-
-
-        // orders.where("orderId", "==", orderId).get().then(snapshots => {
-        //     if(snapshots.size > 0) {
-        //         snapshots.forEach(orderItem => {
-        //             orders.doc(orderItem.id).update({queueNum: queueNum + 1})
-        //         })
-        //     }
-        // });
     }
-    res.json({result: "accepted job"})
+    // ORDER TIMED OUT
+    else if (status == "timedOut") {
+        // Move position one to position 0, and everyone else down a position.
+
+        let batch = getFirestore().batch();
+        const queuedJobsToUpdate = await getFirestore().collection("queuedJobs")
+        .where("orderId", "==", orderId)
+        .where("sellerId","!=", sellerId)
+        .get();
+        queuedJobsToUpdate.forEach(async (doc) => {
+            batch.update(doc.ref, {queueNum: doc.data().queueNum-1});
+        });
+
+        batch.commit().then(() => {
+            console.log("Decremented all q numbers for order id except 0s because seller response timed out", orderId);
+        });
+    }
+    res.json({result: `recieved status of ${status}`});
 });
 
-exports.sellerDelivered = onRequest(async (req, res) => {
-    //make it so this sets the orderStatus = "delivered"
-    const orderId = req.query.orderId;
-    const orderToUpdate = await getFirestore().collection("orders")
-    .where("orderId","==",orderId)
-    .get();
-    orderToUpdate.forEach((doc) => {
-        doc.ref.update({status: "delivered"})
-    });
-    res.json({result: "changed status to delivered"});
-    // const res = await getFirestore().collection("orders").doc(orderToUpdate.ref.id).update({status: "delivered"});
-});
+// exports.sellerDelivered = onRequest(async (req, res) => {
+//     //make it so this sets the orderStatus = "delivered"
+//     const orderId = req.query.orderId;
+//     const orderToUpdate = await getFirestore().collection("orders")
+//     .where("orderId","==",orderId)
+//     .get();
+//     orderToUpdate.forEach((doc) => {
+//         doc.ref.update({status: "delivered"})
+//     });
+//     res.json({result: "changed status to delivered"});
+//     // const res = await getFirestore().collection("orders").doc(orderToUpdate.ref.id).update({status: "delivered"});
+// });
 
-exports.buyerConfirmed = onRequest(async (req, res) => {
-   //make it so this sets the orderStatus = "confirmed"
-   const orderId = req.query.orderId;
-   const orderToUpdate = await getFirestore().collection("orders")
-   .where("orderId","==",orderId)
-   .get();
-   orderToUpdate.forEach((doc) => {
-       doc.ref.update({status: "confirmed"})
-   });
-   res.json({result: "changed status to confirmed"});
-   // const res = await getFiresllection("orders").doc(orderToUpdate.ref.id).update({status: "confirmed"});
-});
+// exports.buyerConfirmed = onRequest(async (req, res) => {
+//    //make it so this sets the orderStatus = "confirmed"
+//    const orderId = req.query.orderId;
+//    const orderToUpdate = await getFirestore().collection("orders")
+//    .where("orderId","==",orderId)
+//    .get();
+//    orderToUpdate.forEach((doc) => {
+//        doc.ref.update({status: "confirmed"})
+//    });
+//    res.json({result: "changed status to confirmed"});
+//    // const res = await getFiresllection("orders").doc(orderToUpdate.ref.id).update({status: "confirmed"});
+// });
 
 exports.createDummyListing = onRequest(async (req, res) => {
     function addDays(date, days) {
@@ -271,7 +264,7 @@ exports.createDummyListing = onRequest(async (req, res) => {
         return result;
     }
     // create dummy listing
-    const collection = await getFirestore().collection("listings").doc()
+    const collection = await getFirestore().collection("sellerPreferences").doc()
     .set({
         basePrice: 7,
         canDeliver: true,
